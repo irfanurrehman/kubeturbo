@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	clusterclient "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	kubeturbo "github.com/turbonomic/kubeturbo/pkg"
+	"github.com/turbonomic/kubeturbo/pkg/kubefed"
 	"github.com/turbonomic/kubeturbo/pkg/util"
 	"github.com/turbonomic/kubeturbo/test/flag"
 
@@ -43,6 +45,7 @@ const (
 	defaultDiscoveryIntervalSec = 600
 	defaultValidationWorkers    = 10
 	defaultValidationTimeout    = 60
+	defaultKubeFedNamespace     = "kube-federation-system"
 )
 
 var (
@@ -64,6 +67,7 @@ type VMTServer struct {
 	K8sTAPSpec           string
 	TestingFlagPath      string
 	KubeConfig           string
+	KubefedKubeConfig    string
 	BindPodsQPS          float32
 	BindPodsBurst        int
 	DiscoveryIntervalSec int
@@ -99,6 +103,9 @@ type VMTServer struct {
 
 	// The Cluster API namespace
 	ClusterAPINamespace string
+
+	// The Kubefed API Namespace in the kubefed cluster
+	KubefedNamespace string
 }
 
 // NewVMTServer creates a new VMTServer with default parameters
@@ -120,6 +127,8 @@ func (s *VMTServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.K8sTAPSpec, "turboconfig", s.K8sTAPSpec, "Path to the config file.")
 	fs.StringVar(&s.TestingFlagPath, "testingflag", s.TestingFlagPath, "Path to the testing flag.")
 	fs.StringVar(&s.KubeConfig, "kubeconfig", s.KubeConfig, "Path to kubeconfig file with authorization and master location information.")
+	fs.StringVar(&s.KubefedKubeConfig, "kubefedkubeconfig", s.KubefedKubeConfig, "Path to kubeconfig file used to communicate with the KubeFed API.")
+	fs.StringVar(&s.KubefedNamespace, "kubefed-namespace", defaultKubeFedNamespace, "The namespace in the kubefed host cluster in which kubefed control plane is running.")
 	fs.BoolVar(&s.EnableProfiling, "profiling", false, "Enable profiling via web interface host:port/debug/pprof/.")
 	fs.BoolVar(&s.UseUUID, "stitch-uuid", true, "Use VirtualMachine's UUID to do stitching, otherwise IP is used.")
 	fs.IntVar(&s.KubeletPort, "kubelet-port", DefaultKubeletPort, "The port of the kubelet runs on")
@@ -268,6 +277,15 @@ func (s *VMTServer) Run() {
 		os.Exit(1)
 	}
 
+	var kubefedClient *kubernetes.Clientset
+	if s.KubefedKubeConfig != "" {
+		kubefedClient, err = kubefed.JoinKubefed(s.KubefedKubeConfig, s.KubefedNamespace,
+			strings.ToLower(k8sTAPSpec.TargetIdentifier), kubeConfig)
+		if err != nil {
+			glog.Warningf("Failure getting kubefed clientset: %v", err.Error())
+		}
+	}
+
 	// Configuration for creating the Kubeturbo TAP service
 	vmtConfig := kubeturbo.NewVMTConfig2()
 	vmtConfig.WithTapSpec(k8sTAPSpec).
@@ -275,6 +293,7 @@ func (s *VMTServer) Run() {
 		WithDynamicClient(dynamicClient).
 		WithKubeletClient(kubeletClient).
 		WithClusterAPIClient(caClient).
+		WithKubefedClient(kubefedClient).
 		WithVMPriority(s.VMPriority).
 		WithVMIsBase(s.VMIsBase).
 		UsingUUIDStitch(s.UseUUID).

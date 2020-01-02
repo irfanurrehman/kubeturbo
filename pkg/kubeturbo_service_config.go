@@ -23,6 +23,7 @@ type Config struct {
 	DynamicClient dynamic.Interface
 	KubeletClient *kubeletclient.KubeletClient
 	CAClient      *clientset.Clientset
+	KubefedClient *kubeclient.Clientset
 
 	// Close this to stop all reflectors
 	StopEverything chan struct{}
@@ -45,6 +46,11 @@ func NewVMTConfig2() *Config {
 
 func (c *Config) WithKubeClient(client *kubeclient.Clientset) *Config {
 	c.KubeClient = client
+	return c
+}
+
+func (c *Config) WithKubefedClient(client *kubeclient.Clientset) *Config {
+	c.KubefedClient = client
 	return c
 }
 
