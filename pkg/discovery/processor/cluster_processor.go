@@ -52,11 +52,11 @@ func (p *ClusterProcessor) ConnectCluster() error {
 	if p.clusterInfoScraper == nil || p.nodeScrapper == nil {
 		return fmt.Errorf("null kubernetes cluster or node client")
 	}
-	svcID, err := p.clusterInfoScraper.GetKubernetesServiceID()
+	err := p.clusterInfoScraper.CheckClusterHealth()
 	if err != nil {
-		return fmt.Errorf("cannot obtain service ID for cluster: %s", err)
+		return err
 	}
-	glog.V(4).Infof("Obtained kubernetes service ID: %s.", svcID)
+	glog.V(4).Info("Cluster healthy")
 
 	// Nodes
 	p.isValidated, err = p.connectToNodes()
@@ -156,18 +156,22 @@ func (p *ClusterProcessor) DiscoverCluster() (*repository.KubeCluster, error) {
 	if p.clusterInfoScraper == nil {
 		return nil, fmt.Errorf("null kubernetes cluster client")
 	}
-	svcID, err := p.clusterInfoScraper.GetKubernetesServiceID()
+	err := p.clusterInfoScraper.CheckClusterHealth()
 	if err != nil {
-		return nil, fmt.Errorf("failed to obtain service ID for cluster: %v", err)
+		return nil, err
 	}
-	glog.V(2).Infof("Obtained kubernetes service ID: %s.", svcID)
+
 	nodeList, err := p.clusterInfoScraper.GetAllNodes()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get nodes for cluster %s: %v", svcID, err)
+		return nil, fmt.Errorf("failed to get nodes for cluster %v", err)
 	}
 	glog.V(2).Infof("Discovered cluster with %d nodes.", len(nodeList))
 
 	// Create kubeCluster and compute cluster resource
+	svcID, err := p.clusterInfoScraper.GetKubernetesServiceID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service ID for cluster %v", err)
+	}
 	kubeCluster := repository.NewKubeCluster(svcID, nodeList)
 
 	// Discover Namespaces and Quotas

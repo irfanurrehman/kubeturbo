@@ -12,8 +12,8 @@ type ClusterMonitorConfig struct {
 	clusterInfoScraper *cluster.ClusterScraper
 }
 
-func NewClusterMonitorConfig(kclient *kubernetes.Clientset, dynamicClient dynamic.Interface) *ClusterMonitorConfig {
-	k8sClusterScraper := cluster.NewClusterScraper(kclient, dynamicClient)
+func NewClusterMonitorConfig(kclient, kubefedClient *kubernetes.Clientset, dynamicClient dynamic.Interface) *ClusterMonitorConfig {
+	k8sClusterScraper := cluster.NewClusterScraper(kclient, kubefedClient, dynamicClient)
 	return &ClusterMonitorConfig{
 		clusterInfoScraper: k8sClusterScraper,
 	}

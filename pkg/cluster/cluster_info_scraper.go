@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"k8s.io/client-go/dynamic"
+	"strings"
 
 	api "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,17 +33,20 @@ type ClusterScraperInterface interface {
 	GetAllEndpoints() ([]*api.Endpoints, error)
 	GetAllServices() ([]*api.Service, error)
 	GetKubernetesServiceID() (svcID string, err error)
+	CheckClusterHealth() error
 }
 
 type ClusterScraper struct {
 	*client.Clientset
 	DynamicClient dynamic.Interface
+	KubefedClient *client.Clientset
 }
 
-func NewClusterScraper(kclient *client.Clientset, dynamicClient dynamic.Interface) *ClusterScraper {
+func NewClusterScraper(kclient, kubefedClient *client.Clientset, dynamicClient dynamic.Interface) *ClusterScraper {
 	return &ClusterScraper{
 		Clientset:     kclient,
 		DynamicClient: dynamicClient,
+		KubefedClient: kubefedClient,
 	}
 }
 
@@ -174,7 +178,19 @@ func (s *ClusterScraper) GetAllEndpoints() ([]*api.Endpoints, error) {
 }
 
 func (s *ClusterScraper) GetKubernetesServiceID() (svcID string, err error) {
-	svc, err := s.CoreV1().Services(k8sDefaultNamespace).Get(kubernetesServiceName, metav1.GetOptions{})
+	var svc *api.Service
+	if s.KubefedClient != nil {
+		// TODO: Using the default kubernetes svc id from kubefed host cluster can
+		// lead to an issue (very unlikely though).
+		// Federated clusters kubeturbo registers to opsmgr. There is a kubeturbo running
+		// in the cluster hosting kubefed which chooses not to be federated and still
+		// registers with opsmgr as an independent cluster. The service id of the federated
+		// clusters and the kubefed host cluster (registering independently) will be the same.
+		// We can use kubefed control plane deployment or service id in place instead.
+		svc, err = s.KubefedClient.CoreV1().Services(k8sDefaultNamespace).Get(kubernetesServiceName, metav1.GetOptions{})
+	} else {
+		svc, err = s.CoreV1().Services(k8sDefaultNamespace).Get(kubernetesServiceName, metav1.GetOptions{})
+	}
 	if err != nil {
 		return
 	}
@@ -211,4 +227,17 @@ func (s *ClusterScraper) findRunningPodsOnNode(nodeName string) ([]*api.Pod, err
 		pods[i] = &podList.Items[i]
 	}
 	return pods, nil
+}
+
+func (s *ClusterScraper) CheckClusterHealth() error {
+	body, err := s.DiscoveryClient.RESTClient().Get().AbsPath("/healthz").Do().Raw()
+	if err != nil {
+		return fmt.Errorf("Cluster unhealthy: %v", err)
+	} else {
+		if !strings.EqualFold(string(body), "ok") {
+			return fmt.Errorf("Cluster unhealthy: The healthz API did not return ok, got %s instead", string(body))
+		} else {
+			return nil
+		}
+	}
 }

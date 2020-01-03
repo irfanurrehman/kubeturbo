@@ -17,6 +17,8 @@ type ProbeConfig struct {
 
 	// Rest Client for the kubernetes server API
 	ClusterClient *kubernetes.Clientset
+	// Rest Client to talk to kubefed cluster
+	KubefeClient *kubernetes.Clientset
 	// Dynamic client for the kubernetes server API
 	DynamicClient dynamic.Interface
 	// Rest Client for the kubelet module in each node
