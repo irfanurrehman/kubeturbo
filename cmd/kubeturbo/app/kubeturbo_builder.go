@@ -61,12 +61,16 @@ type disconnectFromTurboFunc func()
 // VMTServer has all the context and params needed to run a Scheduler
 // TODO: leaderElection is disabled now because of dependency problems.
 type VMTServer struct {
-	Port                 int
-	Address              string
-	Master               string
-	K8sTAPSpec           string
-	TestingFlagPath      string
-	KubeConfig           string
+	Port            int
+	Address         string
+	Master          string
+	K8sTAPSpec      string
+	TestingFlagPath string
+	KubeConfig      string
+
+	// KubePublicInterface is needed when federating this kubeturbo and no KubeConfig is provided.
+	// Kubeturbo uses cluster service IP in that case, which is not reachable externally.
+	KubePublicInterface  string
 	KubefedKubeConfig    string
 	BindPodsQPS          float32
 	BindPodsBurst        int
@@ -129,6 +133,7 @@ func (s *VMTServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.KubeConfig, "kubeconfig", s.KubeConfig, "Path to kubeconfig file with authorization and master location information.")
 	fs.StringVar(&s.KubefedKubeConfig, "kubefedkubeconfig", s.KubefedKubeConfig, "Path to kubeconfig file used to communicate with the KubeFed API.")
 	fs.StringVar(&s.KubefedNamespace, "kubefed-namespace", defaultKubeFedNamespace, "The namespace in the kubefed host cluster in which kubefed control plane is running.")
+	fs.StringVar(&s.KubePublicInterface, "kube-public-interface", "", "The ip:port pair published for this cluster access, on which API server is reachable externally.")
 	fs.BoolVar(&s.EnableProfiling, "profiling", false, "Enable profiling via web interface host:port/debug/pprof/.")
 	fs.BoolVar(&s.UseUUID, "stitch-uuid", true, "Use VirtualMachine's UUID to do stitching, otherwise IP is used.")
 	fs.IntVar(&s.KubeletPort, "kubelet-port", DefaultKubeletPort, "The port of the kubelet runs on")
@@ -164,6 +169,10 @@ func (s *VMTServer) createKubeConfigOrDie() *restclient.Config {
 	// This specifies the number and the max number of query per second to the api server.
 	kubeConfig.QPS = 20.0
 	kubeConfig.Burst = 30
+
+	if s.KubePublicInterface != "" {
+		kubeConfig.Host = "https://" + s.KubePublicInterface
+	}
 
 	return kubeConfig
 }
