@@ -287,8 +287,10 @@ func (s *VMTServer) Run() {
 	}
 
 	var kubefedClient *kubernetes.Clientset
+	// TODO: use only dynamic client at all places
+	var kubefedDynClient dynamic.Interface
 	if s.KubefedKubeConfig != "" {
-		kubefedClient, err = kubefed.JoinKubefed(s.KubefedKubeConfig, s.KubefedNamespace,
+		kubefedClient, kubefedDynClient, err = kubefed.JoinKubefed(s.KubefedKubeConfig, s.KubefedNamespace,
 			strings.ToLower(k8sTAPSpec.TargetIdentifier), kubeConfig)
 		if err != nil {
 			glog.Warningf("Failure getting kubefed clientset: %v", err.Error())
@@ -303,6 +305,7 @@ func (s *VMTServer) Run() {
 		WithKubeletClient(kubeletClient).
 		WithClusterAPIClient(caClient).
 		WithKubefedClient(kubefedClient).
+		WithKubefedDynClient(kubefedDynClient).
 		WithVMPriority(s.VMPriority).
 		WithVMIsBase(s.VMIsBase).
 		UsingUUIDStitch(s.UseUUID).
@@ -310,7 +313,8 @@ func (s *VMTServer) Run() {
 		WithValidationTimeout(s.ValidationTimeout).
 		WithValidationWorkers(s.ValidationWorkers).
 		WithSccSupport(s.sccSupport).
-		WithCAPINamespace(s.ClusterAPINamespace)
+		WithCAPINamespace(s.ClusterAPINamespace).
+		WithKubefedNamespace(s.KubefedNamespace)
 	glog.V(3).Infof("Finished creating turbo configuration: %+v", vmtConfig)
 
 	// The KubeTurbo TAP service

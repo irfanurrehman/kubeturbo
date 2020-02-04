@@ -19,11 +19,12 @@ type Config struct {
 	// VMIsBase: Is VM is the base template from kubeturbo, when stitching with other VM probes, should be false;
 	VMIsBase bool
 
-	KubeClient    *kubeclient.Clientset
-	DynamicClient dynamic.Interface
-	KubeletClient *kubeletclient.KubeletClient
-	CAClient      *clientset.Clientset
-	KubefedClient *kubeclient.Clientset
+	KubeClient       *kubeclient.Clientset
+	DynamicClient    dynamic.Interface
+	KubeletClient    *kubeletclient.KubeletClient
+	CAClient         *clientset.Clientset
+	KubefedClient    *kubeclient.Clientset
+	KubefedDynClient dynamic.Interface
 
 	// Close this to stop all reflectors
 	StopEverything chan struct{}
@@ -32,8 +33,9 @@ type Config struct {
 	ValidationWorkers    int
 	ValidationTimeoutSec int
 
-	SccSupport    []string
-	CAPINamespace string
+	SccSupport       []string
+	CAPINamespace    string
+	KubefedNamespace string
 }
 
 func NewVMTConfig2() *Config {
@@ -51,6 +53,11 @@ func (c *Config) WithKubeClient(client *kubeclient.Clientset) *Config {
 
 func (c *Config) WithKubefedClient(client *kubeclient.Clientset) *Config {
 	c.KubefedClient = client
+	return c
+}
+
+func (c *Config) WithKubefedDynClient(client dynamic.Interface) *Config {
+	c.KubefedDynClient = client
 	return c
 }
 
@@ -116,5 +123,10 @@ func (c *Config) WithSccSupport(sccSupport []string) *Config {
 
 func (c *Config) WithCAPINamespace(CAPINamespace string) *Config {
 	c.CAPINamespace = CAPINamespace
+	return c
+}
+
+func (c *Config) WithKubefedNamespace(KubefedNamespace string) *Config {
+	c.KubefedNamespace = KubefedNamespace
 	return c
 }

@@ -25,17 +25,23 @@ type TurboActionExecutor interface {
 }
 
 type TurboK8sActionExecutor struct {
-	kubeClient    *kclient.Clientset
-	dynamicClient dynamic.Interface
-	cApiClient    *clientset.Clientset
-	podManager    util.IPodManager
+	kubeClient       *kclient.Clientset
+	dynamicClient    dynamic.Interface
+	kubefedDynClient dynamic.Interface
+	kubefedNamespace string
+	thisClusterName  string
+	cApiClient       *clientset.Clientset
+	podManager       util.IPodManager
 }
 
-func NewTurboK8sActionExecutor(kubeClient *kclient.Clientset, dynamicClient dynamic.Interface, cApiClient *clientset.Clientset, podManager util.IPodManager) TurboK8sActionExecutor {
+func NewTurboK8sActionExecutor(kubeClient *kclient.Clientset, dynamicClient, kubefedDynClient dynamic.Interface, cApiClient *clientset.Clientset, podManager util.IPodManager, kubefedNamespace, thisClusterName string) TurboK8sActionExecutor {
 	return TurboK8sActionExecutor{
-		kubeClient:    kubeClient,
-		dynamicClient: dynamicClient,
-		cApiClient:    cApiClient,
-		podManager:    podManager,
+		kubeClient:       kubeClient,
+		dynamicClient:    dynamicClient,
+		kubefedDynClient: kubefedDynClient,
+		kubefedNamespace: kubefedNamespace,
+		thisClusterName:  thisClusterName,
+		cApiClient:       cApiClient,
+		podManager:       podManager,
 	}
 }

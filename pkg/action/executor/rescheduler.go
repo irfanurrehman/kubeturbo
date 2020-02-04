@@ -2,6 +2,11 @@ package executor
 
 import (
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"strconv"
+	"time"
 
 	"github.com/golang/glog"
 
@@ -30,10 +35,52 @@ func (r *ReScheduler) Execute(input *TurboActionExecutorInput) (*TurboActionExec
 	pod := input.Pod
 
 	//1. get target Pod and new hosting Node
-	node, err := r.getPodNode(actionItem)
+	node, dstCluster, err := r.getPodNode(actionItem)
 	if err != nil {
 		glog.Errorf("Failed to execute pod move: %v.", err)
 		return &TurboActionExecutorOutput{}, err
+	}
+
+	if dstCluster != "" {
+		if r.kubefedDynClient == nil {
+			return &TurboActionExecutorOutput{}, fmt.Errorf("Got multi-cluster action but Kubefed client is null")
+		}
+		// Cross cluster move
+		res := schema.GroupVersionResource{
+			Group:    "turbo.kubefed.io",
+			Version:  "v1alpha1",
+			Resource: "actions",
+		}
+		action := &unstructured.Unstructured{}
+		name := "kubeturbo-action-" + strconv.FormatInt(time.Now().UnixNano(), 32)
+		SetBasicMetaFields(action, res, "Action", name, r.kubefedNamespace)
+		targetRef := make(map[string]interface{})
+		targetRef["kind"] = "pod"
+		targetRef["name"] = pod.Name
+		targetRef["namespace"] = pod.Namespace
+		err := unstructured.SetNestedMap(action.Object, targetRef, "spec", "targetRef")
+		if err != nil {
+			glog.Errorf("Failed to execute pod move: %v.", err)
+			return &TurboActionExecutorOutput{}, err
+		}
+		clusters := make(map[string]interface{})
+		clusters["source"] = r.thisClusterName
+		clusters["destination"] = dstCluster
+		err = unstructured.SetNestedMap(action.Object, clusters, "spec", "clusters")
+		if err != nil {
+			glog.Errorf("Failed to execute pod move: %v.", err)
+			return &TurboActionExecutorOutput{}, err
+		}
+		err = unstructured.SetNestedField(action.Object, node.Name, "spec", "targetNode")
+		if err != nil {
+			glog.Errorf("Failed to execute pod move: %v.", err)
+			return &TurboActionExecutorOutput{}, err
+		}
+
+		_, err = r.kubefedDynClient.Resource(res).Namespace(r.kubefedNamespace).Create(action, metav1.CreateOptions{})
+		return &TurboActionExecutorOutput{}, err
+
+		// TODO: clean up above code and wait for the status update before returning success
 	}
 
 	//2. move pod to the node and check move status
@@ -51,13 +98,13 @@ func (r *ReScheduler) Execute(input *TurboActionExecutorInput) (*TurboActionExec
 }
 
 // get k8s.node of the new hosting node
-func (r *ReScheduler) getNode(action *proto.ActionItemDTO) (*api.Node, error) {
+func (r *ReScheduler) getNode(action *proto.ActionItemDTO) (*api.Node, string, error) {
 	//1. check host entity
 	hostSE := action.GetNewSE()
 	if hostSE == nil {
 		err := fmt.Errorf("New host entity is empty")
 		glog.Errorf("%v.", err)
-		return nil, err
+		return nil, "", err
 	}
 
 	//2. check entity type
@@ -65,28 +112,70 @@ func (r *ReScheduler) getNode(action *proto.ActionItemDTO) (*api.Node, error) {
 	if etype != proto.EntityDTO_VIRTUAL_MACHINE && etype != proto.EntityDTO_PHYSICAL_MACHINE {
 		err := fmt.Errorf("The move destination [%v] is neither a VM nor a PM", etype)
 		glog.Errorf("%v.", err)
-		return nil, err
+		return nil, "", err
 	}
 
 	//3. get node from properties
 	node, err := util.GetNodeFromProperties(r.kubeClient, hostSE.GetEntityProperties())
 	if err == nil {
 		glog.V(2).Infof("Get node(%v) from properties.", node.Name)
-		return node, nil
-	}
-
-	//4. get node by displayName
-	node, err = util.GetNodebyName(r.kubeClient, hostSE.GetDisplayName())
-	if err == nil {
-		glog.V(2).Infof("Get node(%v) by displayName.", node.Name)
-		return node, nil
+		return node, "", nil
 	}
 
 	//5. get node by UUID
 	node, err = util.GetNodebyUUID(r.kubeClient, hostSE.GetId())
 	if err == nil {
 		glog.V(2).Infof("Get node(%v) by UUID(%v).", node.Name, hostSE.GetId())
-		return node, nil
+		return node, "", nil
+	}
+
+	nodeUid := hostSE.GetId()
+	if r.kubefedDynClient != nil {
+		// Possibly a multi-cluster action
+		glog.V(2).Infof("Checking the node by UUID(%v) from federated clusters.", hostSE.GetId())
+		kfClient := r.kubefedDynClient
+		res := schema.GroupVersionResource{
+			Group:    "core.kubefed.io",
+			Version:  "v1beta1",
+			Resource: "kubefedclusters",
+		}
+
+		clusterList, err := kfClient.Resource(res).Namespace(r.kubefedNamespace).List(metav1.ListOptions{})
+		if err == nil {
+			for _, cluster := range clusterList.Items {
+				clusterName := cluster.GetName()
+				nodelist, found, err := unstructured.NestedSlice(cluster.Object, "status", "nodeList")
+				if err != nil {
+					glog.V(2).Infof("Error retrieving nodelist from federated cluster %s: %v.", clusterName, err)
+					continue
+				}
+				if !found {
+					glog.V(2).Infof("Nodelist not updated for federated cluster %s.", clusterName)
+					continue
+				}
+
+				for idx := range nodelist {
+					node := nodelist[idx].(map[string]interface{})
+					uid := node["uid"]
+					if uid.(string) == nodeUid {
+						typedNode := &api.Node{}
+						nodeName := node["name"].(string)
+						typedNode.Name = nodeName
+						glog.V(2).Infof("Get node(%v) from federated Cluster(%v).", nodeName, clusterName)
+						return typedNode, clusterName, nil
+					}
+				}
+			}
+		} else {
+			glog.V(2).Infof("Error retrieving clusterList from federated control plane: %v", err)
+		}
+	}
+
+	//4. get node by displayName
+	node, err = util.GetNodebyName(r.kubeClient, hostSE.GetDisplayName())
+	if err == nil {
+		glog.V(2).Infof("Get node(%v) by displayName.", node.Name)
+		return node, "", nil
 	}
 
 	//6. get node by IP
@@ -95,7 +184,7 @@ func (r *ReScheduler) getNode(action *proto.ActionItemDTO) (*api.Node, error) {
 		node, err = util.GetNodebyIP(r.kubeClient, vmIPs)
 		if err == nil {
 			glog.V(2).Infof("Get node(%v) by IP.", hostSE.GetDisplayName())
-			return node, nil
+			return node, "", nil
 		}
 		err = fmt.Errorf("Failed to get node %s by IP %+v: %v",
 			hostSE.GetDisplayName(), vmIPs, err)
@@ -104,11 +193,11 @@ func (r *ReScheduler) getNode(action *proto.ActionItemDTO) (*api.Node, error) {
 			hostSE.GetDisplayName())
 	}
 	glog.Errorf("%v.", err)
-	return nil, err
+	return nil, "", err
 }
 
 // get kubernetes pod, and the new hosting kubernetes node
-func (r *ReScheduler) getPodNode(action *proto.ActionItemDTO) (*api.Node, error) {
+func (r *ReScheduler) getPodNode(action *proto.ActionItemDTO) (*api.Node, string, error) {
 	glog.V(4).Infof("MoveActionItem: %++v", action)
 	// Check and find the new hosting node for the pod.
 	return r.getNode(action)
@@ -201,4 +290,12 @@ func getVMIps(entity *proto.EntityDTO) []string {
 	}
 
 	return vmData.GetIpAddress()
+}
+
+func SetBasicMetaFields(resource *unstructured.Unstructured, gvr schema.GroupVersionResource, kind, name, namespace string) {
+	resource.SetKind(kind)
+	gv := gvr.GroupVersion()
+	resource.SetAPIVersion(gv.String())
+	resource.SetName(name)
+	resource.SetNamespace(namespace)
 }

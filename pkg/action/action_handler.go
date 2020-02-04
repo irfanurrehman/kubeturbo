@@ -41,16 +41,19 @@ var (
 )
 
 type ActionHandlerConfig struct {
-	kubeClient     *kubeclient.Clientset
-	dynamicClient  dynamic.Interface
-	cApiClient     *clientset.Clientset
-	kubeletClient  *kubeletclient.KubeletClient
-	StopEverything chan struct{}
-	sccAllowedSet  map[string]struct{}
-	cAPINamespace  string
+	kubeClient       *kubeclient.Clientset
+	dynamicClient    dynamic.Interface
+	kubefedDynClient dynamic.Interface
+	cApiClient       *clientset.Clientset
+	kubeletClient    *kubeletclient.KubeletClient
+	StopEverything   chan struct{}
+	sccAllowedSet    map[string]struct{}
+	cAPINamespace    string
+	kubefedNamespace string
+	thisClusterName  string
 }
 
-func NewActionHandlerConfig(cApiNamespace string, cApiClient *clientset.Clientset, kubeClient *kubeclient.Clientset, kubeletClient *kubeletclient.KubeletClient, dynamicClient dynamic.Interface, sccSupport []string) *ActionHandlerConfig {
+func NewActionHandlerConfig(clusterName, cApiNamespace, kubefedNamespace string, cApiClient *clientset.Clientset, kubeClient *kubeclient.Clientset, kubeletClient *kubeletclient.KubeletClient, dynamicClient, kubefedDynClient dynamic.Interface, sccSupport []string) *ActionHandlerConfig {
 	sccAllowedSet := make(map[string]struct{})
 	for _, sccAllowed := range sccSupport {
 		sccAllowedSet[strings.TrimSpace(sccAllowed)] = struct{}{}
@@ -58,13 +61,16 @@ func NewActionHandlerConfig(cApiNamespace string, cApiClient *clientset.Clientse
 	glog.V(4).Infof("SCC's allowed: %s", sccAllowedSet)
 
 	config := &ActionHandlerConfig{
-		kubeClient:     kubeClient,
-		dynamicClient:  dynamicClient,
-		kubeletClient:  kubeletClient,
-		StopEverything: make(chan struct{}),
-		sccAllowedSet:  sccAllowedSet,
-		cAPINamespace:  cApiNamespace,
-		cApiClient:     cApiClient,
+		kubeClient:       kubeClient,
+		dynamicClient:    dynamicClient,
+		kubeletClient:    kubeletClient,
+		kubefedDynClient: kubefedDynClient,
+		StopEverything:   make(chan struct{}),
+		sccAllowedSet:    sccAllowedSet,
+		cAPINamespace:    cApiNamespace,
+		kubefedNamespace: kubefedNamespace,
+		cApiClient:       cApiClient,
+		thisClusterName:  clusterName,
 	}
 
 	return config
@@ -103,7 +109,7 @@ func NewActionHandler(config *ActionHandlerConfig) *ActionHandler {
 // As action executor is stateless, they can be safely reused.
 func (h *ActionHandler) registerActionExecutors() {
 	c := h.config
-	ae := executor.NewTurboK8sActionExecutor(c.kubeClient, c.dynamicClient, c.cApiClient, h.podManager)
+	ae := executor.NewTurboK8sActionExecutor(c.kubeClient, c.dynamicClient, c.kubefedDynClient, c.cApiClient, h.podManager, c.kubefedNamespace, c.thisClusterName)
 
 	reScheduler := executor.NewReScheduler(ae, c.sccAllowedSet)
 	h.actionExecutors[turboActionPodMove] = reScheduler
