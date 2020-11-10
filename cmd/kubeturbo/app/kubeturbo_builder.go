@@ -62,7 +62,7 @@ var (
 	noneSchedulerName = "turbo-no-scheduler"
 )
 
-type disconnectFromTurboFunc func()
+type cleanUp func()
 
 // VMTServer has all the context and params needed to run a Scheduler
 // TODO: leaderElection is disabled now because of dependency problems.
@@ -388,7 +388,7 @@ func (s *VMTServer) startHttp() {
 }
 
 // handleExit disconnects the tap service from Turbo service when Kubeturbo is shotdown
-func handleExit(disconnectFunc disconnectFromTurboFunc) { // k8sTAPService *kubeturbo.K8sTAPService) {
+func handleExit(cleanUpFns ...cleanUp) { // k8sTAPService *kubeturbo.K8sTAPService) {
 	glog.V(4).Infof("*** Handling Kubeturbo Termination ***")
 	sigChan := make(chan os.Signal)
 	signal.Notify(sigChan,
@@ -404,7 +404,9 @@ func handleExit(disconnectFunc disconnectFromTurboFunc) { // k8sTAPService *kube
 			// Close the mediation container including the endpoints. It avoids the
 			// invalid endpoints remaining in the server side. See OM-28801.
 			glog.V(2).Infof("Signal %s received. Disconnecting from Turbo server...\n", sig)
-			disconnectFunc()
+			for _, f := range cleanUpFns {
+				f()
+			}
 		}
 	}()
 }
