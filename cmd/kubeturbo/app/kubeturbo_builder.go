@@ -328,6 +328,7 @@ func (s *VMTServer) Run() {
 	vmtConfig := kubeturbo.NewVMTConfig2()
 	vmtConfig.WithTapSpec(k8sTAPSpec).
 		WithKubeClient(kubeClient).
+		WithKubeConfig(kubeConfig).
 		WithDynamicClient(dynamicClient).
 		WithORMClient(ormClient).
 		WithKubeletClient(kubeletClient).
@@ -531,7 +532,7 @@ func manageSCCs(dynClient dynamic.Interface, kubeClient kubernetes.Interface) {
 
 		saNames = append(saNames, saName)
 
-		err = addUserToSCC(userFullName(ns, saName), sccName, dynClient)
+		err = addUserToSCC(util.SCCUserFullName(ns, saName), sccName, dynClient)
 		if err != nil {
 			glog.Errorf("Error adding scc user: %s to scc: %s: %v.", saName, sccName, err)
 			return
@@ -551,12 +552,12 @@ func manageSCCs(dynClient dynamic.Interface, kubeClient kubernetes.Interface) {
 		util.SCCMapping[sccName] = saName
 	}
 
-	roleName, err := createSCCRole(ns, kubeClient)
+	clusterRoleName, err := createSCCClusterRole(kubeClient)
 	if err != nil {
 		return
 	}
 
-	err = createSCCRoleBinding(saNames, ns, roleName, kubeClient)
+	err = createSCCClusterRoleBinding(saNames, ns, clusterRoleName, kubeClient)
 	if err != nil {
 		return
 	}
@@ -611,42 +612,42 @@ func createSCCServiceAccount(namespace, sccName string, kubeClient kubernetes.In
 	return saName, err
 }
 
-func createSCCRole(namespace string, kubeClient kubernetes.Interface) (string, error) {
-	role := util.GetRoleForSCC()
-	roleName := role.Name
+func createSCCClusterRole(kubeClient kubernetes.Interface) (string, error) {
+	clusterRole := util.GetClusterRoleForSCC()
+	clusterRoleName := clusterRole.Name
 
 	err := util.RetryDuring(util.TransientRetryTimes, 0,
 		util.QuickRetryInterval, func() error {
-			_, err := kubeClient.RbacV1().Roles(namespace).Create(role)
+			_, err := kubeClient.RbacV1().ClusterRoles().Create(clusterRole)
 			if apierrors.IsAlreadyExists(err) {
-				glog.V(3).Infof("SCC Role: %s/%s already exists.", namespace, roleName)
+				glog.V(3).Infof("SCC Cluster Role: %s already exists.", clusterRoleName)
 				return nil
 			}
 
 			if err != nil {
-				glog.Errorf("Error creating SCC Role: %s/%s, %s.", namespace, roleName, err)
+				glog.Errorf("Error creating SCC Cluster Role: %s, %s.", clusterRoleName, err)
 				return err
 			}
 			return nil
 		})
 
-	return roleName, err
+	return clusterRoleName, err
 }
 
-func createSCCRoleBinding(saNames []string, namespace, roleName string, kubeClient kubernetes.Interface) error {
-	rb := util.GetRoleBindingForSCC(saNames, namespace, roleName)
+func createSCCClusterRoleBinding(saNames []string, namespace, roleName string, kubeClient kubernetes.Interface) error {
+	crb := util.GetClusterRoleBindingForSCC(saNames, namespace, roleName)
 	return util.RetryDuring(util.TransientRetryTimes, 0,
 		util.QuickRetryInterval, func() error {
-			_, err := kubeClient.RbacV1().RoleBindings(namespace).Create(rb)
+			_, err := kubeClient.RbacV1().ClusterRoleBindings().Create(crb)
 			if apierrors.IsAlreadyExists(err) {
 				// We ignore the case where a new scc might appear between kubeturbo runs
 				// That means a new scc definition will be picked across restarts.
-				glog.V(3).Infof("SCC RoleBinding: %s/%s already exists.", rb.Namespace, rb.Name)
+				glog.V(3).Infof("SCC ClusterRoleBinding: %s already exists.", crb.Name)
 				return nil
 			}
 
 			if err != nil {
-				glog.Errorf("Error creating SCC RoleBinding: %s/%s, %s.", rb.Namespace, rb.Name, err)
+				glog.Errorf("Error creating SCC ClusterRoleBinding: %s, %s.", crb.Name, err)
 				return err
 			}
 			return nil
@@ -662,7 +663,7 @@ func cleanUpSCCMgmtResources(dynClient dynamic.Interface, kubeClient kubernetes.
 	glog.V(2).Infof("SCC management resource cleanup started.")
 
 	for sccName, saName := range util.SCCMapping {
-		err := removeUserFromSCC(userFullName(ns, saName), sccName, dynClient)
+		err := removeUserFromSCC(util.SCCUserFullName(ns, saName), sccName, dynClient)
 		if err != nil {
 			glog.Errorf("Error removing sa(user): %s from scc: %s, %v", saName, sccName, err)
 			// We still continue to try to cleanup rest of them.
@@ -686,52 +687,52 @@ func cleanUpSCCMgmtResources(dynClient dynamic.Interface, kubeClient kubernetes.
 			})
 	}
 
-	deleteSCCRoleBinding(ns, kubeClient)
-	deleteSCCRole(ns, kubeClient)
+	deleteSCCClusterRoleBinding(ns, kubeClient)
+	deleteSCCClusterRole(ns, kubeClient)
 	glog.V(2).Infof("SCC management resource cleanup completed.")
 }
 
-func deleteSCCRole(namespace string, kubeClient kubernetes.Interface) {
-	roleName := util.SCCRoleName
+func deleteSCCClusterRole(namespace string, kubeClient kubernetes.Interface) {
+	clusterRoleName := util.SCCClusterRoleName
 	err := util.RetryDuring(util.TransientRetryTimes, 0,
 		util.QuickRetryInterval, func() error {
 			deleteOptions := metav1.DeleteOptions{}
-			err := kubeClient.RbacV1().Roles(namespace).Delete(roleName, &deleteOptions)
+			err := kubeClient.RbacV1().ClusterRoles().Delete(clusterRoleName, &deleteOptions)
 			if apierrors.IsNotFound(err) {
-				glog.V(3).Infof("SCC Role: %s/%s already deleted.", namespace, roleName)
+				glog.V(3).Infof("SCC ClusterRole: %s already deleted.", clusterRoleName)
 				return nil
 			}
 
 			if err != nil {
-				glog.Errorf("Error deleting SCC Role: %s/%s, %s.", namespace, roleName, err)
+				glog.Errorf("Error deleting SCC ClusterRole: %s, %s.", clusterRoleName, err)
 				return err
 			}
 			return nil
 		})
 
 	if err != nil {
-		glog.Errorf("Error deleting SCC role.")
+		glog.Errorf("Error deleting SCC cluster role.")
 	}
 }
 
-func deleteSCCRoleBinding(namespace string, kubeClient kubernetes.Interface) {
-	roleBindingName := util.SCCRoleBindingName
+func deleteSCCClusterRoleBinding(namespace string, kubeClient kubernetes.Interface) {
+	clusterRoleBindingName := util.SCCClusterRoleBindingName
 	err := util.RetryDuring(util.TransientRetryTimes, 0,
 		util.QuickRetryInterval, func() error {
 			deleteOptions := metav1.DeleteOptions{}
-			err := kubeClient.RbacV1().RoleBindings(namespace).Delete(roleBindingName, &deleteOptions)
+			err := kubeClient.RbacV1().ClusterRoleBindings().Delete(clusterRoleBindingName, &deleteOptions)
 			if apierrors.IsNotFound(err) {
-				glog.V(3).Infof("SCC RoleBinding: %s/%s already deleted.", namespace, roleBindingName)
+				glog.V(3).Infof("SCC ClusterRoleBinding: %s already deleted.", clusterRoleBindingName)
 			}
 
 			if err != nil {
-				glog.Errorf("Error deleting SCC RoleBinding: %s/%s, %s.", namespace, roleBindingName, err)
+				glog.Errorf("Error deleting SCC ClusterRoleBinding: %s, %s.", clusterRoleBindingName, err)
 			}
 			return nil
 		})
 
 	if err != nil {
-		glog.Errorf("Error deleting SCC role binding.")
+		glog.Errorf("Error deleting SCC cluster role binding.")
 	}
 }
 
@@ -754,10 +755,6 @@ func reviewSCCAccess(namespace string, kubeClient kubernetes.Interface) bool {
 	}
 
 	return true
-}
-
-func userFullName(ns, saName string) string {
-	return fmt.Sprintf("system:serviceaccount:%s:%s", ns, saName)
 }
 
 func addUserToSCC(userFullName, sccName string, client dynamic.Interface) error {
@@ -785,9 +782,6 @@ func addUserToSCC(userFullName, sccName string, client dynamic.Interface) error 
 	}
 	if !ok {
 		// TODO: reverify this case, what can result in this not being found
-	}
-	if err != nil {
-		return err
 	}
 
 	for _, user := range users {

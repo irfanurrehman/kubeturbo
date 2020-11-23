@@ -16,7 +16,7 @@ const (
 	KindDeploymentConfig      = "DeploymentConfig"
 	KindReplicationController = "ReplicationController"
 	KindStatefulSet           = "StatefulSet"
-	KindRole                  = "Role"
+	KindClusterRole           = "ClusterRole"
 
 	K8sExtensionsGroupName     = "extensions"
 	K8sAppsGroupName           = "apps"
@@ -32,8 +32,8 @@ const (
 	StatefulSetResName           = "statefulsets"
 	DaemonSetResName             = "daemonsets"
 	OpenShiftSCCResName          = "securitycontextconstraints"
-	RoleResName                  = "roles"
-	RoleBindingResName           = "rolebindings"
+	ClusterRoleResName           = "clusterroles"
+	ClusterRoleBindingResName    = "clusterrolebindings"
 	ServiceAccountResName        = "serviceaccounts"
 	PodResName                   = "pods"
 
