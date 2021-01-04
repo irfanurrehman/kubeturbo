@@ -40,8 +40,9 @@ type Config struct {
 	DiscoverySamples           int
 	DiscoverySampleIntervalSec int
 
-	SccSupport    []string
-	CAPINamespace string
+	SccSupport        []string
+	CAPINamespace     string
+	CloudProviderName string
 
 	// Strategy to aggregate Container utilization data on ContainerSpec entity
 	containerUtilizationDataAggStrategy string
@@ -166,5 +167,10 @@ func (c *Config) WithContainerUsageDataAggStrategy(containerUsageDataAggStrategy
 
 func (c *Config) WithVolumePodMoveConfig(failVolumePodMoves bool) *Config {
 	c.failVolumePodMoves = failVolumePodMoves
+	return c
+}
+
+func (c *Config) WithCloudProviderName(cpName string) *Config {
+	c.CloudProviderName = cpName
 	return c
 }
