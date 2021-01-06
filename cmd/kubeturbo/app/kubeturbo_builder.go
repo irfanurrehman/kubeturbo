@@ -178,7 +178,7 @@ func (s *VMTServer) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&s.DiscoverySamples, "discovery-samples", DefaultDiscoverySamples, "The number of resource usage data samples to be collected from kubelet in each full discovery cycle. This should be no larger than 60.")
 	fs.IntVar(&s.DiscoverySampleIntervalSec, "discovery-sample-interval", DefaultDiscoverySampleIntervalSec, "The discovery interval in seconds to collect additional resource usage data samples from kubelet. This should be no smaller than 10 seconds.")
 	fs.StringSliceVar(&s.sccSupport, "scc-support", defaultSccSupport, "The SCC list allowed for executing pod actions, e.g., --scc-support=restricted,anyuid or --scc-support=* to allow all.")
-	fs.StringSliceVar(&s.CloudProviderNodeGroups, "cp-node-groups", []string{}, "The node group names when initialising the cloud provider with scale min and max. e.g. --cp-node-groups=1:10:nodegroup1,1:5:nodegroup2")
+	fs.StringSliceVar(&s.CloudProviderNodeGroups, "cp-node-groups", []string{}, "The node group names when initialising the cloud provider with scale min and max values. e.g. --cp-node-groups=1:10:nodegroup1,1:5:nodegroup2")
 	fs.StringVar(&s.CloudProviderName, "cloud-provider", "", "The name of cloud provider on which the k8s cluster is running. This value will be used to try and bootstrap the cloud provider for node scaling support. Only supported value is 'azure'.")
 	fs.StringVar(&s.ClusterAPINamespace, "cluster-api-namespace", "default", "The Cluster API namespace.")
 	fs.StringVar(&s.BusyboxImage, "busybox-image", "busybox", "The complete image uri used for fallback node cpu frequency getter job.")

@@ -44,7 +44,7 @@ var _ = Describe("Action Executor", func() {
 
 			cluster.NewClusterScraper(kubeClient, dynamicClient)
 			actionHandlerConfig := action.NewActionHandlerConfig("", nil, nil,
-				cluster.NewClusterScraper(kubeClient, dynamicClient), nil, nil, true, "")
+				cluster.NewClusterScraper(kubeClient, dynamicClient), nil, nil, true, "", []string{})
 
 			actionHandler = action.NewActionHandler(actionHandlerConfig)
 		}
