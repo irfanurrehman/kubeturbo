@@ -82,10 +82,17 @@ func (namespaceMetrics *NamespaceMetrics) AggregateUsed(partialUsed map[metrics.
 // same ContainerSpec.
 type ContainerMetrics struct {
 	Capacity []float64
-	Used     []metrics.Point
+	// Used could be []metrics.Point or [][]metrics.ThrottlingCumulative
+	// [][]metrics. ThrottlingCumulative stores multipoints segregated per container.
+	// Storing it this way helps in identifying metrics per container while aggregating
+	// the metrics for containerSpecs.
+	// TODO: At some point this can be converted to a typed UsedMetric interface which
+	// implements the methods like len(), append() and getPoints() and have the implementation
+	// hidden from the users of this metric.
+	Used interface{}
 }
 
-func NewContainerMetrics(capacity []float64, used []metrics.Point) *ContainerMetrics {
+func NewContainerMetrics(capacity []float64, used interface{}) *ContainerMetrics {
 	return &ContainerMetrics{
 		Capacity: capacity,
 		Used:     used,
@@ -116,3 +123,38 @@ func NewContainerSpecMetrics(namespace, controllerUID, containerName, containerS
 		ContainerMetrics:  make(map[metrics.ResourceType]*ContainerMetrics),
 	}
 }
+
+/*
+type UsedPoints interface {
+	Len() int
+	Append(used UsedPoints) (UsedPoints, error)
+	GetPoints() interface{}
+}
+
+type UsedMultiPoint struct {
+	points []metrics.Point
+}
+
+func (u *UsedMultiPoint) Len() int {
+
+}
+
+func (u *UsedMultiPoint) Append(used UsedPoints) (UsedPoints, error) {
+
+	switch typedSlice := slice.(type) {
+	case []metrics.Point:
+		typedElements, isRightType := elements.([]metrics.Point)
+		if isRightType {
+			typedSlice = append(typedSlice, typedElements...)
+		}
+		return typedSlice
+	case []metrics.ThrottlingCumulative:
+		typedElements, isRightType := elements.([]metrics.ThrottlingCumulative)
+		if isRightType {
+			typedSlice = append(typedSlice, typedElements...)
+		}
+		return typedSlice
+	}
+	return nil
+}
+*/

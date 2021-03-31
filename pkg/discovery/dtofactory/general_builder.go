@@ -231,11 +231,24 @@ func (builder generalBuilder) metricValue(entityType metrics.DiscoveredEntityTyp
 		if numberOfSamples <= 1 {
 			// We don't have enough samples to calculate this value.
 			// Throttling value would appear as zero on the entity.
+			glog.V(3).Infof("Number of samples not enough to calculate throttling value on: %s", entityID)
 			break
 		}
-		metricValue.Avg = (typedValue[numberOfSamples-1].Throttled - typedValue[0].Throttled) /
-			(typedValue[numberOfSamples-1].Total - typedValue[0].Total)
-		metricValue.Peak = metricValue.Avg
+		total := typedValue[numberOfSamples-1].Total - typedValue[0].Total
+		if total > 0 {
+			metricValue.Avg = (typedValue[numberOfSamples-1].Throttled - typedValue[0].Throttled) * 100 / total
+		}
+
+		var peak float64
+		for i := 0; i < numberOfSamples; i++ {
+			total := typedValue[i+1].Total - typedValue[i].Total
+			throttledPercent := float64(0)
+			if total > 0 {
+				throttledPercent = (typedValue[i+1].Throttled - typedValue[i].Throttled) * 100 / total
+			}
+			peak = math.Max(peak, throttledPercent)
+		}
+		metricValue.Peak = peak
 	case float64:
 		metricValue.Avg = typedValue
 		metricValue.Peak = typedValue
