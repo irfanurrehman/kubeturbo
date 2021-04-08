@@ -235,7 +235,11 @@ func (builder generalBuilder) metricValue(entityType metrics.DiscoveredEntityTyp
 		}
 
 		if total > 0 {
-			metricValue.Avg = throttled * 100 / total
+			if throttled > total {
+				metricValue.Avg = 100
+			} else {
+				metricValue.Avg = throttled * 100 / total
+			}
 		}
 		metricValue.Peak = peak
 	case float64:
@@ -381,16 +385,63 @@ func aggregateContainerThrottlingSamples(entityID string, samples []metrics.Thro
 	sort.SliceStable(samples, func(i, j int) bool {
 		return samples[i].Timestamp < samples[j].Timestamp
 	})
-	throttled = (samples[numberOfSamples-1].Throttled - samples[0].Throttled)
-	total = samples[numberOfSamples-1].Total - samples[0].Total
 
+	resetIndexes := []int{}
+	// calculate peak
 	for i := 0; i < numberOfSamples-1; i++ {
-		total := samples[i+1].Total - samples[i].Total
+		if samples[i+1].Total < samples[i].Total || samples[i+1].Throttled < samples[i].Throttled {
+			// This probably means the counter was reset for some reason
+			// we ignore this sample diff for our calculations
+			resetIndexes = append(resetIndexes, i)
+			continue
+		}
+		totalSingleSample := samples[i+1].Total - samples[i].Total
 		throttledPercent := float64(0)
-		if total > 0 {
-			throttledPercent = (samples[i+1].Throttled - samples[i].Throttled) * 100 / total
+		if totalSingleSample > 0 {
+			throttledSingleSample := samples[i+1].Throttled - samples[i].Throttled
+			if throttledSingleSample > totalSingleSample {
+				// This is unlikely but possible because of errors at cadvisors end.
+				throttledPercent = 100
+			} else {
+				throttledPercent = throttledSingleSample * 100 / totalSingleSample
+			}
 		}
 		peak = math.Max(peak, throttledPercent)
 	}
+
+	lastReset := 0
+	// calculate avg percentage
+	//
+	// we actually don't need this len(resetIndexes) <= 0 check and we will have
+	// same results keeping the code only in the else block. however, the conter
+	// reset is super rare, so we can avoid going through all samples each time again,
+	// when we are probably not going to see counter reset almost ever.
+	if len(resetIndexes) <= 0 {
+		throttled = (samples[numberOfSamples-1].Throttled - samples[0].Throttled)
+		total = samples[numberOfSamples-1].Total - samples[0].Total
+	} else {
+		for i := 0; i < numberOfSamples; i++ {
+			if indexInSlice(i, resetIndexes) {
+				throttled += (samples[i].Throttled - samples[lastReset].Throttled)
+				total += samples[i].Total - samples[lastReset].Total
+				lastReset = i + 1
+			}
+			// Handle last window
+			if i == numberOfSamples-1 && i != lastReset {
+				throttled += (samples[i].Throttled - samples[lastReset].Throttled)
+				total += samples[i].Total - samples[lastReset].Total
+			}
+		}
+	}
+
 	return throttled, total, peak, true
+}
+
+func indexInSlice(value int, indexes []int) bool {
+	for _, indexValue := range indexes {
+		if value == indexValue {
+			return true
+		}
+	}
+	return false
 }
