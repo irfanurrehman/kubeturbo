@@ -213,6 +213,11 @@ func (builder generalBuilder) metricValue(entityType metrics.DiscoveredEntityTyp
 	metricUID := metrics.GenerateEntityResourceMetricUID(entityType, entityID, resourceType, metricProp)
 	metric, err := builder.metricsSink.GetMetric(metricUID)
 	if err != nil {
+		if resourceType == metrics.VCPUThrottling {
+			// We add the throttling commodity, even when we don't get the metrics from kubelet.
+			glog.V(4).Infof("Missing throttling metrics for: %s", entityID)
+			return metricValue, nil
+		}
 		return metricValue, fmt.Errorf("missing metrics %s", metricProp)
 	}
 
